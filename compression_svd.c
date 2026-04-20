@@ -99,7 +99,7 @@ void save_svd_compressed_float(char *filename, SVD *svd, int k, int m, int n)
     fclose(f);
     int svd_bytes = sizeof(int) * 3 + k * sizeof(float) + m * k * sizeof(float) + n * k * sizeof(float);
     printf("Сжатое представление (float) сохранено: %s\n", filename);
-    printf("Размер файла: ~%.1f KB (k=%d)\n", k, svd_bytes / 1024.0);
+    printf("Размер файла: ~%.1f KB (k=%d)\n", svd_bytes / 1024.0, k);
 }
 //Читаем float-svd-разложение из бинарного файла
 SVD* load_svd_compressed_float(char *filename, int *m, int *n, int *k) 
