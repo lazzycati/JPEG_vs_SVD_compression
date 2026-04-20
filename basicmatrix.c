@@ -3,6 +3,12 @@
 #include <stdint.h>
 #include "basicmatrix.h"
 
+typedef struct Matrix{
+    double **data;
+    int rows;
+    int cols;
+} Matrix;
+
 void createMatrix(Matrix *matrix, int rows, int cols) 
 {
     matrix->rows = rows;
@@ -67,12 +73,12 @@ void matrix_to_image(Matrix *matrix, Image *img)
         }
     }
 }
-void identity_matrix(Matrix *matrix, int N) 
+void identityMatrix(Matrix *matrix, int N) 
 {
     for (int i = 0; i < N; i++) matrix->data[i][i] = 1.0;
 }
 
-void copy_matrix(Matrix *src, Matrix *dst) 
+void copyMatrix(Matrix *src, Matrix *dst) 
 {
     for (int i = 0; i < src->rows; i++) 
     {
