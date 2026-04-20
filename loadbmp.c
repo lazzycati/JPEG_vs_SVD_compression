@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
+#include "loadbmp.h"
+
 #pragma pack(push, 1) 
 typedef struct {
     uint16_t bfType;            // "BM" (0x4D42)
@@ -25,12 +27,6 @@ typedef struct {
     uint32_t biClrImportant;    // Важные цвета (0 = все)
 } BMPInfoHeader;
 #pragma pack(pop)
-
-typedef struct {
-    int width;
-    int height;
-    uint8_t *data;  
-} Image;
 
 Image* load_bmp(char *filename) 
 {
