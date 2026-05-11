@@ -2,12 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "basicmatrix.h"
-
-typedef struct Matrix{
-    double **data;
-    int rows;
-    int cols;
-} Matrix;
+#include <math.h>
 
 void createMatrix(Matrix *matrix, int rows, int cols) 
 {
@@ -40,28 +35,24 @@ void freeMatrix(Matrix *matrix)
     free(matrix);
 }
 
-void image_to_matrix(Matrix *matrix, Image *img) 
+void channel_to_matrix(Matrix *matrix, int width, int height, uint8_t *channel) 
 {
-    for (int i = 0; i < img->height; i++) 
+    for (int i = 0; i < height; i++) 
     {
-        for (int j = 0; j < img->width; j++) 
+        for (int j = 0; j < width; j++) 
         {
-            matrix->data[i][j] = (double)img->data[i * img->width + j];
+            matrix->data[i][j] = (double)channel[i * width + j];
         }
     }
 }
 
-void matrix_to_image(Matrix *matrix, Image *img) 
+void matrix_to_channel(Matrix *matrix, int *width, int *height, uint8_t *channel) 
 {
-    
-    img->width = matrix->cols;
-    img->height = matrix->rows;
-    img->data = (uint8_t*)malloc(matrix->rows * matrix->cols * sizeof(uint8_t));
-    if (!img->data) 
-    {
-        free(img);
-        return;
-    }
+    *width = matrix->cols;
+    *height = matrix->rows;
+    int tpixels = matrix->rows * matrix->cols;
+    channel = (uint8_t*)malloc(tpixels * sizeof(uint8_t));
+    if (!channel) return;
     for (int i = 0; i < matrix->rows; i++) 
     {
         for (int j = 0; j < matrix->cols; j++) 
@@ -69,10 +60,11 @@ void matrix_to_image(Matrix *matrix, Image *img)
             double val = matrix->data[i][j];
             if (val < 0) val = 0;
             if (val > 255) val = 255;
-            img->data[i * matrix->cols + j] = (uint8_t)val;
+            channel[i * matrix->cols + j] = (uint8_t)val;
         }
     }
 }
+
 void identityMatrix(Matrix *matrix, int N) 
 {
     for (int i = 0; i < N; i++) matrix->data[i][i] = 1.0;
