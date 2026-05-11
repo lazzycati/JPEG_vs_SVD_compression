@@ -5,21 +5,6 @@
 #include <string.h>
 #include "svd.h"
 
-#define EPS 1e-10
-#define MAX_ITER 1000
-
-typedef struct Matrix {
-    double **data;
-    int rows;
-    int cols;
-} Matrix;
-
-typedef struct SVD {
-    Matrix *U;      // левые сингулярные векторы (m × m)
-    double *S;      // сингулярные числа (min(m,n))
-    Matrix *V;      // правые сингулярные векторы (n × n)
-} SVD;
-
 //Берем пару столбцов p, q из матрицы, применяем вращение, которое делает столбцы ортогональными.
 // Идея: вместо того, чтобы напрямую искать U, Σ, V, последовательно применяем вращения к исходной матрице, чтобы сделать ее ортог.
 //То бишь: J₁ᵀ · A · J₂ = B, где J₁, J₂ - матрицы вращений, которые мы выбираем так, чтобы занулить внедиаг. элементы исходн. матр.
@@ -210,6 +195,27 @@ Matrix* svd_reconstruct(SVD *svd, int k)
         }
     }
     return rec;
+}
+
+void YCbCr_SVD(YCbCrImage420 *img, int k) 
+{
+    if (!img || k <= 0) return;
+    printf("Применение SVD к YCbCr 4:2:0 (k = %d)\n", k);
+    printf("Обработка Y канала (%dx%d)\n", img->height, img->width);
+    Matrix *matrixY = (Matrix*)malloc(sizeof(Matrix) * img->height * img->width);
+    channel_to_matrix(matrixY, img->width, img->height, img->Y);
+    SVD *svdY = svd_double_sided_jacobi(matrixY, EPS, MAX_ITER);
+    int wsub = (img->width + 1) / 2;
+    int hsub = (img->height + 1) / 2;
+    printf("Обработка Cb канала (%dx%d)\n", hsub, wsub);
+    Matrix *matrixCb = (Matrix*)malloc(sizeof(Matrix) * wsub * hsub);
+    channel_to_matrix(matrixCb, wsub, hsub, img->Cb);
+    SVD *svdCb = svd_double_sided_jacobi(matrixCb, EPS, MAX_ITER);
+    printf("Обработка Cr канала (%dx%d)\n", hsub, wsub);
+    Matrix *matrixCr = (Matrix*)malloc(sizeof(Matrix) * wsub * hsub);
+    channel_to_matrix(matrixCr, wsub, hsub, img->Cb);
+    SVD *svdCr = svd_double_sided_jacobi(matrixCr, EPS, MAX_ITER);
+    printf("SVD завершен\n");
 }
 
 void free_svdstate(SVD *result) 
