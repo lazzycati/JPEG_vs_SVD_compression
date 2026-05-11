@@ -1,11 +1,14 @@
-#include "loadbmp.h"
 #pragma once 
-
-typedef struct Matrix Matrix;
+#include "loadbmp.h"
+typedef struct Matrix {
+    double **data;
+    int rows;
+    int cols;
+} Matrix;
 
 void createMatrix(Matrix *matrix, int rows, int cols);
 void freeMatrix(Matrix *matrix);
-void image_to_matrix(Matrix *matrix, Image *img);
-void matrix_to_image(Matrix *matrix, Image *img);
+void channel_to_matrix(Matrix *matrix, int width, int height, uint8_t *channel);
+void matrix_to_channel(Matrix *matrix, int *width, int *height, uint8_t *channel);
 void identityMatrix(Matrix *matrix, int N);
 void copyMatrix(Matrix *src, Matrix *dst);
