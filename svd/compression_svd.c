@@ -1,205 +1,211 @@
 #include <stdio.h>
-#include "compression_svd.h"
 #include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include "compression_svd.h"
+#include "loadbmp.h"
+#include "subdiscretization.h"
 
-typedef struct Matrix {
-    double **data;
-    int rows;
-    int cols;
-} Mattrix;
-
-typedef struct SVD {
-    Matrix *U;      
-    double *S;      
-    Matrix *V;      
-} SVD;
-
-//сохраняем восстановленное сжатое изображение в bmp-формате
-void save_reconstructedmatrix_to_bmp(SVD *svd, int k, int m, int n, char *filename) 
+void free_ycbcr_svd(YCbCrSVD *svd) 
 {
-    Matrix *rec = svd_reconstruct(svd, k);
-    Image *img = (Image*)malloc(sizeof(Image));
-    matrix_to_image(rec, img);
-    store_to_bmp(filename, img);
-    free_image(img);
-    freeMatrix(rec);
-    printf("Сохранено восстановленное изображение: %s (k=%d)\n", filename, k);
+    if (!svd) return;
+    if (svd->Y) free_svdstate(svd->Y);
+    if (svd->Cb) free_svdstate(svd->Cb);
+    if (svd->Cr) free_svdstate(svd->Cr);
+    free(svd);
 }
-//сохраняем svd-разложение для быстрого доступа в бинарный файл
-void save_svd_compressed(char *filename, SVD *svd, int k, int m, int n) 
+
+void save_svd_compressed(char *filename, YCbCrSVD *svd, int rY, int rCb, int rCr) 
 {
+    if (!filename || !svd || !svd->Y || !svd->Cb || !svd->Cr) return;
     FILE *f = fopen(filename, "wb");
-    if (!f) 
-    {
-        printf("Не удалось создать файл %s\n", filename);
-        return;
-    }
-    fwrite(&m, sizeof(int), 1, f);
-    fwrite(&n, sizeof(int), 1, f);
-    fwrite(&k, sizeof(int), 1, f);
-    fwrite(svd->S, sizeof(double), k, f);
-    for (int i = 0; i < m; i++) fwrite(&svd->U->data[i][0], sizeof(double), k, f);
-    for (int i = 0; i < n; i++) fwrite(&svd->V->data[i][0], sizeof(double), k, f);
+    if (!f) return;
+    fwrite(&svd->yrows, sizeof(int), 1, f);
+    fwrite(&svd->ycols, sizeof(int), 1, f);
+    fwrite(&svd->crows, sizeof(int), 1, f);
+    fwrite(&svd->ccols, sizeof(int), 1, f);
+    fwrite(&rY, sizeof(int), 1, f);
+    fwrite(&rCb, sizeof(int), 1, f);
+    fwrite(&rCr, sizeof(int), 1, f);
+    fwrite(svd->Y->S, sizeof(double), rY, f);
+    for (int i = 0; i < svd->yrows; i++) fwrite(svd->Y->U->data[i], sizeof(double), rY, f);
+    for (int i = 0; i < svd->ycols; i++) fwrite(svd->Y->V->data[i], sizeof(double), rY, f);
+    fwrite(svd->Cb->S, sizeof(double), rCb, f);
+    for (int i = 0; i < svd->crows; i++) fwrite(svd->Cb->U->data[i], sizeof(double), rCb, f);
+    for (int i = 0; i < svd->ccols; i++) fwrite(svd->Cb->V->data[i], sizeof(double), rCb, f);
+    fwrite(svd->Cr->S, sizeof(double), rCr, f);
+    for (int i = 0; i < svd->crows; i++) fwrite(svd->Cr->U->data[i], sizeof(double), rCr, f);
+    for (int i = 0; i < svd->ccols; i++) fwrite(svd->Cr->V->data[i], sizeof(double), rCr, f);
+    fclose(f);
+    printf("Сохранено YCbCr SVD: %s (Y: %dx%d, k=%d; C: %dx%d, rCb=%d, rCr=%d)\n", filename, svd->yrows, svd->ycols, rY, svd->crows, svd->ccols, rCb, rCr);
 }
-//Читаем svd-разложение из бинарного файла
-SVD* load_svd_compressed(char *filename, int *m, int *n, int *k) 
+
+YCbCrSVD* load_svd_compressed(char *filename, int *rY, int *rCb, int *rCr) 
 {
+    if (!filename || !rY || !rCb || !rCr) return NULL;
     FILE *f = fopen(filename, "rb");
-    if (!f) 
+    if (!f) return NULL;
+    YCbCrSVD *svd = (YCbCrSVD*)malloc(sizeof(YCbCrSVD));
+    if (!svd) 
     {
-        printf("Не удалось открыть файл %s\n", filename);
+        fclose(f);
         return NULL;
     }
-    fread(m, sizeof(int), 1, f);
-    fread(n, sizeof(int), 1, f);
-    fread(k, sizeof(int), 1, f);
-    SVD *svd = (SVD*)malloc(sizeof(SVD));
-    svd->S = (double*)malloc(*k * sizeof(double));
-    svd->U = (Matrix*)malloc(sizeof(Matrix));
-    svd->V = (Matrix*)malloc(sizeof(Matrix));
-    createMatrix(svd->U, *m, *k);
-    createMatrix(svd->V, *n, *k);
-    fread(svd->S, sizeof(double), *k, f);
-    for (int i = 0; i < *m; i++) fread(&svd->U->data[i][0], sizeof(double), *k, f);
-    for (int i = 0; i < *n; i++) fread(&svd->V->data[i][0], sizeof(double), *k, f);
-    fclose(f);
-    printf("Загружено сжатое представление: %s (m=%d, n=%d, k=%d)\n", filename, *m, *n, *k);
-    return svd;
-}
-//сохраняем svd в бинарный файл с приведением трех матриц к типу float для сравнения сжатия
-void save_svd_compressed_float(char *filename, SVD *svd, int k, int m, int n) 
-{
-    FILE *f = fopen(filename, "wb");
-    if (!f) 
+    fread(&svd->yrows, sizeof(int), 1, f);
+    fread(&svd->ycols, sizeof(int), 1, f);
+    fread(&svd->crows, sizeof(int), 1, f);
+    fread(&svd->ccols, sizeof(int), 1, f);
+    fread(rY, sizeof(int), 1, f);
+    fread(rCb, sizeof(int), 1, f);
+    fread(rCr, sizeof(int), 1, f);
+    svd->Y = (SVD*)malloc(sizeof(SVD));
+    if (!svd->Y) 
     {
-        printf("Не удалось создать файл %s\n", filename);
-        return;
-    }
-    fwrite(&m, sizeof(int), 1, f);
-    fwrite(&n, sizeof(int), 1, f);
-    fwrite(&k, sizeof(int), 1, f);
-    float *S_float = (float*)malloc(k * sizeof(float));
-    for (int i = 0; i < k; i++) S_float[i] = (float)svd->S[i];
-    fwrite(S_float, sizeof(float), k, f);
-    free(S_float);
-    float *U_row = (float*)malloc(k * sizeof(float));
-    for (int i = 0; i < m; i++) 
-    {
-        for (int j = 0; j < k; j++) U_row[j] = (float)svd->U->data[i][j];
-        fwrite(U_row, sizeof(float), k, f);
-    }
-    free(U_row);
-    float *V_row = (float*)malloc(k * sizeof(float));
-    for (int i = 0; i < n; i++) 
-    {
-        for (int j = 0; j < k; j++) V_row[j] = (float)svd->V->data[i][j];
-        fwrite(V_row, sizeof(float), k, f);
-    }
-    free(V_row);
-    fclose(f);
-    int svd_bytes = sizeof(int) * 3 + k * sizeof(float) + m * k * sizeof(float) + n * k * sizeof(float);
-    printf("Сжатое представление (float) сохранено: %s\n", filename);
-    printf("Размер файла: ~%.1f KB (k=%d)\n", svd_bytes / 1024.0, k);
-}
-//Читаем float-svd-разложение из бинарного файла
-SVD* load_svd_compressed_float(char *filename, int *m, int *n, int *k) 
-{
-    FILE *f = fopen(filename, "rb");
-    if (!f) 
-    {
-        printf("Не удалось открыть файл %s\n", filename);
+        free(svd);
+        fclose(f);
         return NULL;
     }
-    fread(m, sizeof(int), 1, f);
-    fread(n, sizeof(int), 1, f);
-    fread(k, sizeof(int), 1, f);
-    SVD *svd = (SVD*)malloc(sizeof(SVD));
-    svd->S = (double*)malloc(*k * sizeof(double));
-    svd->U = (Matrix*)malloc(sizeof(Matrix));
-    svd->V = (Matrix*)malloc(sizeof(Matrix));
-    createMatrix(svd->U, *m, *k);
-    createMatrix(svd->V, *n, *k);
-    float *S_float = (float*)malloc(*k * sizeof(float));
-    fread(S_float, sizeof(float), *k, f);
-    for (int i = 0; i < *k; i++) svd->S[i] = (double)S_float[i];
-    free(S_float);
-    float *U_row = (float*)malloc(*k * sizeof(float));
-    for (int i = 0; i < *m; i++) 
+    svd->Y->S = (double*)malloc(*rY * sizeof(double));
+    svd->Y->U = (Matrix*)malloc(sizeof(Matrix));
+    svd->Y->V = (Matrix*)malloc(sizeof(Matrix));
+    createMatrix(svd->Y->U, svd->yrows, *rY);
+    createMatrix(svd->Y->V, svd->ycols, *rY);
+    fread(svd->Y->S, sizeof(double), *rY, f);
+    for (int i = 0; i < svd->yrows; i++) fread(svd->Y->U->data[i], sizeof(double), *rY, f);
+    for (int i = 0; i < svd->ycols; i++) fread(svd->Y->V->data[i], sizeof(double), *rY, f);
+    svd->Cb = (SVD*)malloc(sizeof(SVD));
+    if (!svd->Cb)
     {
-        fread(U_row, sizeof(float), *k, f);
-        for (int j = 0; j < *k; j++) svd->U->data[i][j] = (double)U_row[j];
+        free_ycbcr_svd(svd);
+        fclose(f);
+        return NULL;
     }
-    free(U_row);
-    float *V_row = (float*)malloc(*k * sizeof(float));
-    for (int i = 0; i < *n; i++) 
+    svd->Cb->S = (double*)malloc(*rCb * sizeof(double));
+    svd->Cb->U = (Matrix*)malloc(sizeof(Matrix));
+    svd->Cb->V = (Matrix*)malloc(sizeof(Matrix));
+    createMatrix(svd->Cb->U, svd->crows, *rCb);
+    createMatrix(svd->Cb->V, svd->ccols, *rCb);
+    fread(svd->Cb->S, sizeof(double), *rCb, f);
+    for (int i = 0; i < svd->crows; i++) fread(svd->Cb->U->data[i], sizeof(double), *rCb, f);
+    for (int i = 0; i < svd->ccols; i++) fread(svd->Cb->V->data[i], sizeof(double), *rCb, f);
+    svd->Cr = (SVD*)malloc(sizeof(SVD));
+    if (!svd->Cr) 
     {
-        fread(V_row, sizeof(float), *k, f);
-        for (int j = 0; j < *k; j++) svd->V->data[i][j] = (double)V_row[j];
+        free_ycbcr_svd(svd);
+        fclose(f);
+        return NULL;
     }
-    free(V_row);
+    svd->Cr->S = (double*)malloc(*rCr * sizeof(double));
+    svd->Cr->U = (Matrix*)malloc(sizeof(Matrix));
+    svd->Cr->V = (Matrix*)malloc(sizeof(Matrix));
+    createMatrix(svd->Cr->U, svd->crows, *rCr);
+    createMatrix(svd->Cr->V, svd->ccols, *rCr);
+    fread(svd->Cr->S, sizeof(double), *rCr, f);
+    for (int i = 0; i < svd->crows; i++) fread(svd->Cr->U->data[i], sizeof(double), *rCr, f);
+    for (int i = 0; i < svd->ccols; i++) fread(svd->Cr->V->data[i], sizeof(double), *rCr, f);
     fclose(f);
-    printf("Загружено сжатое представление (float): %s (m=%d, n=%d, k=%d)\n", filename, *m, *n, *k);
+    svd->rY = *rY;
+    svd->rCb = *rCb;
+    svd->rCr = *rCr;
+    printf("Загружено YCbCr SVD: %s (Y: %dx%d, k=%d; C: %dx%d, rCb=%d, rCr=%d)\n", filename, svd->yrows, svd->ycols, *rY, svd->crows, svd->ccols, *rCb, *rCr);
     return svd;
 }
-//Выводим информацию о сжатии
-void print_compression_stats(char *svd_filename, char *bmp_filename, int m, int n, int k) 
+
+YCbCrImage420* reconstruct_from_svd(YCbCrSVD *svd, int rY, int rCb, int rCr) 
 {
-    FILE *f_svd = fopen(svd_filename, "rb");
-    if (!f_svd) 
+    if (!svd || !svd->Y || !svd->Cb || !svd->Cr) return NULL;
+    Matrix *Yrec = svd_reconstruct(svd->Y, rY);
+    Matrix *Cbrec = svd_reconstruct(svd->Cb, rCb);
+    Matrix *Crrec = svd_reconstruct(svd->Cr, rCr);
+    if (!Yrec || !Cbrec || !Crrec) 
     {
-        printf("Не удалось открыть %s\n", svd_filename);
-        return;
+        printf("Ошибка восстановления матриц\n");
+        if (Yrec) freeMatrix(Yrec);
+        if (Cbrec) freeMatrix(Cbrec);
+        if (Crrec) freeMatrix(Crrec);
+        return NULL;
     }
-    fseek(f_svd, 0, SEEK_END);
-    int svd_bytes = ftell(f_svd);
-    fclose(f_svd);
-    FILE *f_bmp = fopen(bmp_filename, "rb");
-    if (!f_bmp) 
+    YCbCrImage420 *img420 = (YCbCrImage420*)malloc(sizeof(YCbCrImage420));
+    if (!img420) 
     {
-        printf("Не удалось открыть %s\n", bmp_filename);
-        return;
+        printf("Ошибка выделения памяти для YCbCrImage420\n");
+        freeMatrix(Yrec);
+        freeMatrix(Cbrec);
+        freeMatrix(Crrec);
+        return NULL;
     }
-    fseek(f_bmp, 0, SEEK_END);
-    int bmp_bytes = ftell(f_bmp);
-    fclose(f_bmp);
-    int svd_calc = sizeof(int) * 3 + k * sizeof(double) + m * k * sizeof(double) + n * k * sizeof(double);
-    double ratio = ((double)bmp_bytes) / (svd_bytes * 3);
-    printf("\n=== Статистика сжатия ===\n");
-    printf("Параметры: m=%d, n=%d, k=%d\n", m, n, k);
-    printf("Исходный BMP (grayscale): %d байт\n", bmp_bytes);
-    printf("Сжатый SVD-файл:          %d байт\n", svd_bytes);
-    printf("Расчетный размер SVD:     %d байт\n", svd_calc);
-    printf("Степень сжатия:           %.2f:1 %s\n", ratio, (ratio >= 1.0) ? "(сжатие)" : "(расширение)");
+    img420->width = svd->ycols;
+    img420->height = svd->yrows;
+    img420->Y = (uint8_t*)malloc(svd->yrows * svd->ycols);
+    img420->Cb = (uint8_t*)malloc(svd->crows * svd->ccols);
+    img420->Cr = (uint8_t*)malloc(svd->crows * svd->ccols);
+    if (!img420->Y || !img420->Cb || !img420->Cr) 
+    {
+        printf("Ошибка выделения памяти для каналов\n");
+        free_ycbcr420(img420);
+        freeMatrix(Yrec);
+        freeMatrix(Cbrec);
+        freeMatrix(Crrec);
+        return NULL;
+    }
+    for (int i = 0; i < svd->yrows; i++) 
+    {
+        for (int j = 0; j < svd->ycols; j++) 
+        {
+            double val = Yrec->data[i][j];
+            val = fmax(0.0, fmin(255.0, val));
+            img420->Y[i * svd->ycols + j] = (uint8_t)val;
+        }
+    }
+    for (int i = 0; i < svd->crows; i++) 
+    {
+        for (int j = 0; j < svd->ccols; j++) 
+        {
+            double cbval = Cbrec->data[i][j];
+            double crval = Crrec->data[i][j];
+            cbval = fmax(0.0, fmin(255.0, cbval));
+            crval = fmax(0.0, fmin(255.0, crval));
+            img420->Cb[i * svd->ccols + j] = (uint8_t)cbval;
+            img420->Cr[i * svd->ccols + j] = (uint8_t)crval;
+        }
+    }
+    freeMatrix(Yrec);
+    freeMatrix(Cbrec);
+    freeMatrix(Crrec);
+    printf("Восстановлено YCbCr420 изображение из SVD (Y: k=%d, Cb: k=%d, Cr: k=%d)\n", rY, rCb, rCr);
+    return img420;
 }
-//Выводим информацию о float-сжатии
-void print_compression_stats_float(char *svd_filename, char *bmp_filename, int m, int n, int k) 
+
+void print_stats(char *svd_filename, char *bmp_filename, int m, int n, int k) 
 {
-    FILE *f_svd = fopen(svd_filename, "rb");
-    if (!f_svd) 
+    if (!svd_filename || !bmp_filename) return;
+    FILE *fsvd = fopen(svd_filename, "rb");
+    if (!fsvd) return;
+    int svdbytes = ftell(fsvd);
+    fseek(fsvd, 0, SEEK_END);
+    fclose(fsvd);
+    FILE *fbmp = fopen(bmp_filename, "rb");
+    if (!fbmp) return;
+    fseek(fbmp, 0, SEEK_END);
+    int bmpbytes = ftell(fbmp);
+    fclose(fbmp);
+    double cr = (double)bmpbytes / (double)svdbytes;
+    printf("Исходный BMP файл: %10ld байт\n", bmpbytes);
+    printf("Сжатый SVD файл: %10ld байт\n", svdbytes);
+    printf("Степень сжатия: %10.2f:1\n", cr);
+    if (cr > 1.0) 
     {
-        printf("Не удалось открыть %s\n", svd_filename);
-        return;
+        printf("Достигнуто сжатие в %.2f раз\n", cr);
     }
-    fseek(f_svd, 0, SEEK_END);
-    int svd_bytes = ftell(f_svd);
-    fclose(f_svd);
-    FILE *f_bmp = fopen(bmp_filename, "rb");
-    if (!f_bmp) 
+    else if (cr < 1.0) 
     {
-        printf("Не удалось открыть %s\n", bmp_filename);
-        return;
+        printf("Произошло расширение файла (размер увеличился в %.2f раз)\n", 1.0 / cr);
+    } 
+    else 
+    {
+        printf("Размер не изменился\n");
     }
-    fseek(f_bmp, 0, SEEK_END);
-    int bmp_bytes = ftell(f_bmp);
-    fclose(f_bmp);
-    int svd_calc_float = sizeof(int) * 3 + k * sizeof(float) + m * k * sizeof(float) + n * k * sizeof(float);
-    int svd_calc_double = sizeof(int)*3 + k * sizeof(double) + m * k * sizeof(double) + n * k * sizeof(double);
-    double ratio = (double)bmp_bytes / (svd_bytes * 3);
-    printf("\n=== Статистика сжатия (float) ===\n");
-    printf("Параметры: m=%d, n=%d, k=%d\n", m, n, k);
-    printf("Исходный BMP (RGB):       %d байт\n", bmp_bytes);
-    printf("Сжатый SVD-файл (float):  %d байт\n", svd_bytes);
-    printf("Расчетный размер (float): %d байт\n", svd_calc_float);
-    printf("Расчетный размер (double):%d байт\n", svd_calc_double);
-    printf("Степень сжатия:           %.2f:1 %s\n", ratio, (ratio >= 1.0) ? "(сжатие)" : "(расширение)");
+    double percent = (1.0 - 1.0 / cr) * 100;
+    if (percent > 0) printf("Экономия места: %.1f%%\n", percent);
+    printf("\n");
 }
