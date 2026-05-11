@@ -1,8 +1,6 @@
+#pragma once 
 #include <stdint.h>
 #include "loadbmp.h"
-#pragma once 
-//глаз видит яркость в 3D (X, Y, T), но цвет воспринимает "размытым" в 3-4 раза.
-//4:2:0 — цветность в 2 раза меньше по горизонтали и вертикали (наиболее распространен)
 typedef struct {
     int width;
     int height;
@@ -12,4 +10,5 @@ typedef struct {
 } YCbCrImage420;
 
 YCbCrImage420* convert_to_sub420(YCbCrImage *img);
+YCbCrImage* convert_from_sub420(YCbCrImage420 *img420);
 void free_ycbcr420(YCbCrImage420 *img);
