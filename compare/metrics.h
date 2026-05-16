@@ -9,5 +9,10 @@
 #define C3 (C2 / 2.0)        
 #define WSIZE 11
 
-double PSNR(Image *img1, Image *img2);
-double SSIM(Image *img1, Image *img2);
+void PSNR_channels(YCbCrImage *img1, YCbCrImage *img2, double psnr[3]);
+// PSNR среднее по всем каналам
+double PSNR(YCbCrImage *img1, YCbCrImage *img2);
+//Для каждого канала отдельно
+void SSIM_channels(YCbCrImage *img1, YCbCrImage *img2, double ssim[3]);
+// SSIM среднее по всем каналам
+double SSIM(YCbCrImage *img1, YCbCrImage *img2);
