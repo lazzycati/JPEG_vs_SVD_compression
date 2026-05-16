@@ -1,5 +1,6 @@
 #include "quantization.h"
 #include <stdio.h>
+#include <math.h>
 
 const int luminance_qt[8][8] = {
     {16, 11, 10, 16, 24, 40, 51, 61},
@@ -22,7 +23,6 @@ const int chrominance_qt[8][8] = {
     {99, 99, 99, 99, 99, 99, 99, 99},
     {99, 99, 99, 99, 99, 99, 99, 99}
 };
-
 // Масштабирование таблицы под нужное качество
 void scale_quantization_table(int out[8][8], const int in[8][8], int quality) 
 {
@@ -61,7 +61,7 @@ void quantize_jpeg(JPEGImage *jpeg, int quality)
                 for (int j = 0; j < 8; j++) 
                 {
                     //Cохраняем как int для последующего сжатия
-                    int quantized = (int)round(block->coeff[i][j] / lum_qt[i][j]);
+                    int quantized = (int)floor(block->coeff[i][j] / lum_qt[i][j]);
                     block->coeff[i][j] = quantized;  
                 }
             }
@@ -72,25 +72,70 @@ void quantize_jpeg(JPEGImage *jpeg, int quality)
     {
         for (int bx = 0; bx < jpeg->cbxblocks; bx++) 
         {
-            Block *block = &jpeg->Cbblocks[by][bx];
+            Block *block1 = &jpeg->Cbblocks[by][bx];
             for (int i = 0; i < 8; i++) 
             {
                 for (int j = 0; j < 8; j++) 
                 {
-                    int quantized = (int)round(block->coeff[i][j] / chrom_qt[i][j]);
-                    block->coeff[i][j] = quantized;
+                    int quantized = (int)floor(block1->coeff[i][j] / chrom_qt[i][j]);
+                    block1->coeff[i][j] = quantized;
                 }
             }
-            Block *block = &jpeg->Crblocks[by][bx];
+            Block *block2 = &jpeg->Crblocks[by][bx];
             for (int i = 0; i < 8; i++) 
             {
                 for (int j = 0; j < 8; j++) 
                 {
-                    int quantized = (int)round(block->coeff[i][j] / chrom_qt[i][j]);
-                    block->coeff[i][j] = quantized;
+                    int quantized = (int)floor(block2->coeff[i][j] / chrom_qt[i][j]);
+                    block2->coeff[i][j] = quantized;
                 }
             }
         }
     }
     printf("Квантование завершено\n");
+}
+
+void dequantize_jpeg(JPEGImage *jpeg, int quality) 
+{
+    int lum_qt[8][8], chrom_qt[8][8];
+    scale_quantization_table(lum_qt, luminance_qt, quality);
+    scale_quantization_table(chrom_qt, chrominance_qt, quality);
+    printf("Обратное квантование\n");
+    for (int by = 0; by < jpeg->yblocks; by++) 
+    {
+        for (int bx = 0; bx < jpeg->xblocks; bx++) 
+        {
+            Block *block = &jpeg->Yblocks[by][bx];
+            for (int i = 0; i < 8; i++) 
+            {
+                for (int j = 0; j < 8; j++) 
+                {
+                    block->coeff[i][j] = block->coeff[i][j] * lum_qt[i][j];
+                }
+            }
+        }
+    }
+    for (int by = 0; by < jpeg->cbyblocks; by++) 
+    {
+        for (int bx = 0; bx < jpeg->cbxblocks; bx++) 
+        {
+            Block *block = &jpeg->Cbblocks[by][bx];
+            for (int i = 0; i < 8; i++) 
+            {
+                for (int j = 0; j < 8; j++) 
+                {
+                    block->coeff[i][j] = block->coeff[i][j] * chrom_qt[i][j];
+                }
+            }
+            block = &jpeg->Crblocks[by][bx];
+            for (int i = 0; i < 8; i++) 
+            {
+                for (int j = 0; j < 8; j++) 
+                {
+                    block->coeff[i][j] = block->coeff[i][j] * chrom_qt[i][j];
+                }
+            }
+        }
+    }
+    printf("Обратное квантование завершено\n");
 }
