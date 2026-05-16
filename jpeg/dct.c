@@ -1,6 +1,4 @@
 #include "dct.h"
-#include <math.h>
-#include <stdint.h>
 
 Block** split_into_blocks(uint8_t *channel, int width, int height, int *numxblocks, int *numyblocks) 
 {
@@ -9,7 +7,8 @@ Block** split_into_blocks(uint8_t *channel, int width, int height, int *numxbloc
     *numyblocks = (height + BLOCK_SIZE - 1) / BLOCK_SIZE;
     Block **blocks = (Block**)malloc(*numyblocks * sizeof(Block*));
     if (!blocks) return NULL;
-    for (int i = 0; i < *numyblocks; i++) {
+    for (int i = 0; i < *numyblocks; i++) 
+    {
         blocks[i] = (Block*)malloc(*numxblocks * sizeof(Block));
         if (!blocks[i]) 
         {
@@ -26,13 +25,31 @@ Block** split_into_blocks(uint8_t *channel, int width, int height, int *numxbloc
             for (int y = 0; y < BLOCK_SIZE; y++) 
             {
                 int py = by * BLOCK_SIZE + y;
-                if (py >= height) py = height - 1;
                 for (int x = 0; x < BLOCK_SIZE; x++) 
                 {
                     int px = bx * BLOCK_SIZE + x;
-                    if (px >= width) px = width - 1;
-                    // DC-сдвиг диапазона: [0, 255] -> [-128, 127]
-                    block->coeff[y][x] = (double)channel[py * width + px] - 128.0;
+                    if (py < height && px < width) 
+                    {
+                        //Нормировка - центрирование вокруг нуля (улучшает сжатие - т.к. сами косинусоиды на которые будем раскладыв.
+                        //колеблются вокруг нуля - разложение будет эффективнее - энергия сконцентир. в меньшем объеме коэф.)
+                        block->coeff[y][x] = (double)channel[py * width + px] - 128.0;
+                    } 
+                    else block->coeff[y][x] = 0.0;
+                }
+            }
+            if (by == *numyblocks - 1 || bx == *numxblocks - 1) 
+            {
+                for (int y = 0; y < BLOCK_SIZE; y++) 
+                {
+                    //Симметричное отражение (без обрезания на границах)
+                    int py = by * BLOCK_SIZE + y;
+                    if (py >= height) py = 2 * height - py - 1;  
+                    for (int x = 0; x < BLOCK_SIZE; x++) 
+                    {
+                        int px = bx * BLOCK_SIZE + x;
+                        if (px >= width) px = 2 * width - px - 1;  
+                        if (py < height && px < width) block->coeff[y][x] = (double)channel[py * width + px] - 128.0;
+                    }
                 }
             }
         }
@@ -46,6 +63,9 @@ JPEGImage* prep_for_dct(YCbCrImage420 *img)
     JPEGImage *jpeg = (JPEGImage*)malloc(sizeof(JPEGImage));
     if (!jpeg) return NULL;
     // Разбиваем Y канал (полное разрешение)
+    memset(jpeg, 0, sizeof(JPEGImage));
+    jpeg->width = img->width;    
+    jpeg->height = img->height; 
     jpeg->Yblocks = split_into_blocks(img->Y, img->width, img->height, &jpeg->xblocks, &jpeg->yblocks);
     if (!jpeg->Yblocks) 
     {
@@ -86,7 +106,8 @@ void dct8(double in[8][8], double out[8][8])
     {
         for (int v = 0; v < 8; v++) 
         {
-            // Нормировка для корректного обратного Dct и сохранения ортонормированности 
+            // Нормировка для корректного обратного Dct и сохранения ортонормированности для сохранения энергии сигнала
+            //Сумма квадратов пикселей = Сумма квадратов коэффициентов - чтобы ошибка в частотной области не влекла ошибку в про-нной
             double cv = (v == 0) ? 1.0 / sqrt(2.0) : 1.0;
             double sum = 0.0;
             for (int j = 0; j < 8; j++) sum += in[i][j] * cos((2 * j + 1) * v * M_PI / 16.0);
@@ -109,7 +130,8 @@ void dct8(double in[8][8], double out[8][8])
         }
     }
 }
-
+//Дискретное косинусное преобразование (DCT) — способ представить блок 8×8 как сумму 64 косинусоид разной частоты.
+//F(u,v) = 0.5 * C(u) * C(v) * Σ(x=0..7) Σ(y=0..7) f(x,y) * cos((2x+1)*u*π/16) * cos((2y+1)*v*π/16)
 void DCT(JPEGImage *jpeg) 
 {
     printf("Применение DCT к субдискретизированному изображению...\n");
@@ -138,6 +160,126 @@ void DCT(JPEGImage *jpeg)
         }
     }
     printf("DCT завершено\n");
+}
+
+//f(x,y) = 0.25 * Σ(u=0..7) Σ(v=0..7) C(u) C(v) F(u,v) * cos((2x+1)uπ/16) * cos((2y+1)vπ/16)
+void idct8(double in[8][8], double out[8][8]) 
+{
+    for (int x = 0; x < 8; x++) 
+    {
+        for (int y = 0; y < 8; y++) 
+        {
+            double sum = 0.0;
+            for (int u = 0; u < 8; u++) 
+            {
+                for (int v = 0; v < 8; v++) 
+                {
+                    double cu = (u == 0) ? 1.0 / sqrt(2.0) : 1.0;
+                    double cv = (v == 0) ? 1.0 / sqrt(2.0) : 1.0;
+                    sum += cu * cv * in[u][v] * cos((2 * x + 1) * u * M_PI / 16.0) * cos((2 * y + 1) * v * M_PI / 16.0);
+                }
+            }
+            out[x][y] = sum / 4.0;
+        }
+    }
+}
+
+void inverse_DCT(JPEGImage *jpeg) 
+{
+    printf("Применение обратного DCT\n");
+    for (int by = 0; by < jpeg->yblocks; by++) 
+    {
+        for (int bx = 0; bx < jpeg->xblocks; bx++) 
+        {
+            Block *block = &jpeg->Yblocks[by][bx];
+            double out[8][8];
+            idct8(block->coeff, out);
+            memcpy(block->coeff, out, sizeof(double) * 64);
+        }
+    }
+    for (int by = 0; by < jpeg->cbyblocks; by++) 
+    {
+        for (int bx = 0; bx < jpeg->cbxblocks; bx++) 
+        {
+            Block *block = &jpeg->Cbblocks[by][bx];
+            double out[8][8];
+            idct8(block->coeff, out);
+            memcpy(block->coeff, out, sizeof(double) * 64);
+            block = &jpeg->Crblocks[by][bx];
+            idct8(block->coeff, out);
+            memcpy(block->coeff, out, sizeof(double) * 64);
+        }
+    }
+    printf("Обратное DCT завершено\n");
+}
+
+YCbCrImage420* restore_from_blocks(JPEGImage *jpeg) 
+{
+    if (!jpeg) return NULL;
+    YCbCrImage420 *img = (YCbCrImage420*)malloc(sizeof(YCbCrImage420));
+    if (!img) return NULL;
+    img->width = jpeg->width;
+    img->height = jpeg->height;
+    img->Y = (uint8_t*)malloc(img->width * img->height);
+    int w = (img->width + 1) / 2;
+    int h = (img->height + 1) / 2;
+    img->Cb = (uint8_t*)malloc(w * h);
+    img->Cr = (uint8_t*)malloc(w * h);
+    if (!img->Y || !img->Cb || !img->Cr) 
+    {
+        free_jpeg(jpeg);
+        free(img);
+        return NULL;
+    }
+    // Восстановление Y канала
+    for (int by = 0; by < jpeg->yblocks; by++) 
+    {
+        for (int bx = 0; bx < jpeg->xblocks; bx++) 
+        {
+            Block *block = &jpeg->Yblocks[by][bx];
+            for (int y = 0; y < BLOCK_SIZE; y++) 
+            {
+                int py = by * BLOCK_SIZE + y;
+                if (py >= img->height) continue;
+                for (int x = 0; x < BLOCK_SIZE; x++) 
+                {
+                    int px = bx * BLOCK_SIZE + x;
+                    if (px >= img->width) continue;
+                    int val = (int)round(block->coeff[y][x] + 128.0);
+                    //Клиппируем
+                    if (val < 0) val = 0;
+                    if (val > 255) val = 255;
+                    img->Y[py * img->width + px] = (uint8_t)val;
+                }
+            }
+        }
+    }
+    // Восстановление Cb и Cr каналов
+    for (int by = 0; by < jpeg->cbyblocks; by++) 
+    {
+        for (int bx = 0; bx < jpeg->cbxblocks; bx++) 
+        {
+            Block *blockCb = &jpeg->Cbblocks[by][bx];
+            Block *blockCr = &jpeg->Crblocks[by][bx];
+            for (int y = 0; y < BLOCK_SIZE; y++) 
+            {
+                int py = by * BLOCK_SIZE + y;
+                if (py >= h) continue;
+                for (int x = 0; x < BLOCK_SIZE; x++) 
+                {
+                    int px = bx * BLOCK_SIZE + x;
+                    if (px >= w) continue;
+                    int valCb = (int)round(blockCb->coeff[y][x] + 128.0);
+                    int valCr = (int)round(blockCr->coeff[y][x] + 128.0);
+                    if (valCr < 0) valCr = 0;
+                    if (valCr > 255) valCr = 255;
+                    img->Cb[py * w + px] = (uint8_t)valCb;
+                    img->Cr[py * w + px] = (uint8_t)valCr;
+                }
+            }
+        }
+    }
+    return img;
 }
 
 void free_jpeg(JPEGImage *jpeg) 
