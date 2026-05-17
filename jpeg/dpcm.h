@@ -1,22 +1,16 @@
-#pragma once
-#include "dct.h"
+#pragma once 
+#include "jpegtypes.h"
+#include <math.h>
+#include <string.h>
 #include <stdio.h>
-#include "huffman.h"
 
-// Контекст для хранения предыдущих DC значений
-typedef struct {
-    int prev_dcY;   
-    int prev_dcCb;  
-    int prev_dcCr; 
-} DCContext;
-//DC-компонент - "средняя яркость/цвет" блока (в сдвинутой шкале -128...127), остальные (AC) компоненты определяют детали блока
-//Высокие AC частоты - резкие границы, текстуры, низкие AC частоты - плавные переходы
-//Для DPCM-сжатия рассматриваем только DC-компонент, так как он сильно коррелирует между соседними блоками, для сжатия
-//остальных компонент используем RLE + Хаффман (разные таблицы хаффмана для DC и AC)
+extern const int zigzag[64];
 
-//Находим категорию (кол-во бит на разницу значений DP между блоками)
-int getbits(int diff);
-//Приводим разницу к нормальному виду (корректно обрабатываем отрицательную и нулевую)
-int encode_diff(int diff, int bits);
-//Вычисляем dcmp для всех компонент, применяем кодирование хаффмана для категорий, записываем код и разницу в битовый поток.
-void encode_DCcomponents(JPEGImage *jpeg, DCContext *ctx, BitStream *bs, FILE *output);
+void zigzag_to_block(Block *block, int *out);
+void inverse_zigzag(int *in, Block *block);
+void dpcm_encode_block(int *block, int *prev_dc);
+void dpcm_decode_block(int *block, int *prev_dc);
+//определяем, сколько бит нужно для хранения значения
+int computeCategory(int val);
+//Возвращает разницу между DC-компонентами, с учетом знака
+int extrdiff(int val, int cat);

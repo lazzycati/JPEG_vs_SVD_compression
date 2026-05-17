@@ -1,60 +1,66 @@
 #include "dpcm.h"
 
-int getbits(int diff) 
+const int zigzag[64] = {
+    0,  1,  8,  16, 9,  2,  3,  10,
+    17, 24, 32, 25, 18, 11, 4,  5,
+    12, 19, 26, 33, 40, 48, 41, 34,
+    27, 20, 13, 6,  7,  14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36,
+    29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46,
+    53, 60, 61, 54, 47, 55, 62, 63
+};
+
+void zigzag_to_block(Block *block, int *out) 
 {
-    int d = (diff < 0) ? -diff : diff;
-    if (d == 0) return 0;
-    if (d == 1) return 1;
-    if (d <= 3) return 2;
-    if (d <= 7) return 3;
-    if (d <= 15) return 4;
-    if (d <= 31) return 5;
-    if (d <= 63) return 6;
-    if (d <= 127) return 7;
-    if (d <= 255) return 8;
-    if (d <= 511) return 9;
-    if (d <= 1023) return 10;
-    return 11;
+    for (int i = 0; i < 64; i++) 
+    {
+        int row = zigzag[i] / 8;
+        int col = zigzag[i] % 8;
+        out[i] = (int)round(block->coeff[row][col]);
+    }
 }
 
-int encode_diff(int diff, int bits) 
+void inverse_zigzag(int *in, Block *block) 
 {
-    if (bits == 0) return 0;  
-    if (diff > 0) return diff;
-    else return (-diff) - 1;
+    for (int i = 0; i < 64; i++) 
+    {
+        int row = zigzag[i] / 8;
+        int col = zigzag[i] % 8;
+        block->coeff[row][col] = (double)in[i];
+    }
 }
 
-void encode_DCcomponents(JPEGImage *jpeg, DCContext *ctx, BitStream *bs, FILE *output) 
+void dpcm_encode_block(int *block, int *prev_dc) 
 {
-    printf("Кодирование DC для Y компонента...\n");
-    for (int y = 0; y < jpeg->yblocks; y++) 
+    int diff = block[0] - *prev_dc;
+    *prev_dc = block[0];
+    block[0] = diff;
+}
+
+void dpcm_decode_block(int *block, int *prev_dc) 
+{
+    block[0] = block[0] + *prev_dc;
+    *prev_dc = block[0];
+}
+
+int computeCategory(int val) 
+{
+    int absval = val> 0? val: -val;
+    int cat = 0;
+    if (absval == 0) return 0;
+    while (absval > 0) 
     {
-        for (int x = 0; x < jpeg->xblocks; x++) 
-        {
-            Block *curblock = &jpeg->Yblocks[y][x];
-            // DC-коэффициент - самый первый элемент в блоке (0,0)
-            int cur_dc = (int)curblock->coeff[0][0];
-            // Кодируем DC-коэффициент
-            int diff = cur_dc - ctx->prev_dcY;
-            ctx->prev_dcY = cur_dc;
-            huffman_encodeDC(bs, diff, 1);
-        }
+        absval >>= 1;
+        cat++;
     }
-    printf("\nКодирование DC для Cb и Cr компонент...\n");
-    for (int y = 0; y < jpeg->cbyblocks; y++) 
-    {
-        for (int x = 0; x < jpeg->cbxblocks; x++) 
-        {
-            Block *curblock1 = &jpeg->Cbblocks[y][x];
-            int cur_dc = (int)curblock1->coeff[0][0];
-            int diff = cur_dc - ctx->prev_dcCb;
-            ctx->prev_dcCb = cur_dc;
-            huffman_encodeDC(bs, diff, 0);
-            Block *curblock2 = &jpeg->Crblocks[y][x];
-            int cur_dc = (int)curblock2->coeff[0][0];
-            int diff = cur_dc - ctx->prev_dcCr;
-            ctx->prev_dcCr = cur_dc;
-            huffman_encodeDC(bs, diff, 0);
-        }
-    }
+    return cat;
+}
+
+int extrdiff(int val, int cat) 
+{
+    if (cat == 0) return 0;
+    int half = 1 << (cat - 1);
+    if (val >= half) return val;
+    else return val + (1 << cat) - 1; 
 }
