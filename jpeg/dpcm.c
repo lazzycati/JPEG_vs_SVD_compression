@@ -40,7 +40,7 @@ void dpcm_encode_block(int *block, int *prev_dc)
 
 void dpcm_decode_block(int *block, int *prev_dc) 
 {
-    block[0] = block[0] + *prev_dc;
+    block[0] += *prev_dc;
     *prev_dc = block[0];
 }
 
@@ -63,4 +63,12 @@ int extrdiff(int val, int cat)
     int half = 1 << (cat - 1);
     if (val >= half) return val;
     else return val + (1 << cat) - 1; 
+}
+
+int revextrdiff(int val, int cat) 
+{
+    if (cat == 0) return 0;
+    int half = 1 << (cat - 1);
+    if (val >= half) return val;
+    else return val - (1 << cat) + 1; 
 }

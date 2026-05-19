@@ -14,3 +14,4 @@ void dpcm_decode_block(int *block, int *prev_dc);
 int computeCategory(int val);
 //Возвращает разницу между DC-компонентами, с учетом знака
 int extrdiff(int val, int cat);
+int revextrdiff(int val, int cat);
