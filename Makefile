@@ -1,5 +1,5 @@
 CC = gcc 
-CFLAGS = -Wall -Wextra -O2 -I. -Iauxiliary -Icompare -Ijpeg -Isample -Isvd
+CFLAGS = -O2 -I. -Iauxiliary -Icompare -Ijpeg -Isample -Isvd
 LDFLAGS = -lm 
 SOURCES = $(wildcard auxiliary/*.c compare/*.c jpeg/*.c sample/*.c svd/*.c)
 OBJECTS = $(SOURCES:.c=.o)
