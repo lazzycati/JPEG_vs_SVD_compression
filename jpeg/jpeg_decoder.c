@@ -19,7 +19,6 @@ void destroy_jpeg_decoder(JPEGDecoder *decoder)
     {
         if (decoder->stream) 
         {
-            //Исправить: хранить позицию на данные, чтобы  не было смещения!! if (decoder->stream->data) free(decoder->stream->data);
             free(decoder->stream);
         }
         free(decoder);
