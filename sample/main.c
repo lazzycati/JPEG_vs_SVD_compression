@@ -115,7 +115,7 @@ void SVDTest(char *inputbmp, char *csvfile)
         printf("  Время: %.2f ms\n", time);
         AddstrCsv(csvfile, "SVD", "k", kY, compr_ratio, psnr, ssim, time);
         remove("temp_svd.svd");
-        remove("outbmp,");
+        remove(outbmp);
         free_ycbcr420(rec420);
         free_ycbcr_image(recimg);
         free(svd);
