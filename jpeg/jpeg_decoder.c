@@ -1,4 +1,4 @@
-#include "jpeg_decoder.h"
+#include "decoder.h"
 
 JPEGDecoder* create_jpeg_decoder() 
 {
@@ -267,7 +267,7 @@ static void decode_block(JPEGDecoder *decoder, int *block, int channel, HuffmanT
     }
 }
 
-YCbCrImage* jpeg_decode_image(JPEGDecoder *decoder, char *filename) 
+YCbCrImage* jpeg_decode_image(JPEGDecoder *decoder, char *filename, int quality) 
 {
     if (!decoder || !decoder->stream) return NULL;
     int xblocks = (decoder->width + 7) / 8;
@@ -321,7 +321,7 @@ YCbCrImage* jpeg_decode_image(JPEGDecoder *decoder, char *filename)
         }
     }
     printf("Dequantizing...\n");
-    dequantize_jpeg(image, 100);
+    dequantize_jpeg(image, quality);
     printf("Applying inverse DCT...\n");
     inverse_DCT(image);
     YCbCrImage420 *img420 = restore_from_blocks(image);
@@ -332,7 +332,7 @@ YCbCrImage* jpeg_decode_image(JPEGDecoder *decoder, char *filename)
     return img;
 }
 
-int jpeg_decode_file(char *input_file, char *output_file) 
+int jpeg_decode_file(char *input_file, char *output_file, int quality) 
 {
     printf("Reading JPEG file: %s\n", input_file);
     JPEGFileData *fdata = jpeg_readfile(input_file);
@@ -351,7 +351,7 @@ int jpeg_decode_file(char *input_file, char *output_file)
         return 1;
     }
     printf("Image: %dx%d\n", decoder->width, decoder->height);
-    YCbCrImage *img = jpeg_decode_image(decoder, output_file);
+    YCbCrImage *img = jpeg_decode_image(decoder, output_file, quality);
     destroy_jpeg_decoder(decoder);
     free_datajpeg(fdata);
     if (img) 

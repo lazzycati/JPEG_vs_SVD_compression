@@ -4,7 +4,7 @@
 #include "huffman.h"
 #include "quantization.h"
 #include "subdiscretization.h"
-#include "jpeg_encoder.h"
+#include "jpeg.h"
 #include "dct.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -46,5 +46,5 @@ void destroy_jpeg_decoder(JPEGDecoder *decoder);
 JPEGFileData* jpeg_readfile(char *filename);
 void free_datajpeg(JPEGFileData *file_data);
 int jpeg_parse_headers(JPEGDecoder *decoder, JPEGFileData *file_data);
-YCbCrImage* jpeg_decode_image(JPEGDecoder *decoder, char *filename);
-int jpeg_decode_file(char *inputfile, char *outputfile);
+YCbCrImage* jpeg_decode_image(JPEGDecoder *decoder, char *filename, int quality);
+int jpeg_decode_file(char *inputfile, char *outputfile, int quality);
