@@ -4,7 +4,7 @@
 #include <time.h>
 #include "compression_svd.h"
 #include "metrics.h"
-#include "decoder.h"
+#include "jpeg_decoder.h"
 
 void WriteHeader(char *filename) 
 {
