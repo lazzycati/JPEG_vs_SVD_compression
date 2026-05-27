@@ -1,4 +1,4 @@
-#include "decoder.h"
+#include "jpeg_decoder.h"
 
 JPEGDecoder* create_jpeg_decoder() 
 {

@@ -4,7 +4,7 @@
 #include "huffman.h"
 #include "quantization.h"
 #include "subdiscretization.h"
-#include "jpeg.h"
+#include "jpeg_encoder.h"
 #include "dct.h"
 #include <stdint.h>
 #include <stdio.h>
